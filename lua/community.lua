@@ -21,5 +21,6 @@ return {
   { import = "astrocommunity.pack.go" },
   { import = "astrocommunity.git.blame-nvim" },
   { import = "astrocommunity.editing-support.text-case-nvim" },
+  { import = "astrocommunity.motion.flash-nvim" },
   -- import/override with your plugins folder
 }
