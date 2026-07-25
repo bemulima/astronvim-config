@@ -16,14 +16,19 @@ return {
         "stylua",
 
         -- install debuggers
-        "debugpy",
+        {
+          "debugpy",
+          -- Ubuntu needs python3.12-venv for Mason's virtual environment.
+          -- Keep Python debugging optional until that system package is available.
+          condition = function()
+            return vim.system({ "python3", "-c", "import ensurepip" }, { text = true }):wait().code == 0
+          end,
+        },
 
         -- install any other package
         "tree-sitter-cli",
         "prettier",
         "eslint_d",
-        "typescript-language-server",
-        "stimulus-language-server",
         "dockerfile-language-server",
         "intelephense",
         "spectral-language-server",

@@ -1,8 +1,6 @@
 local M = {}
 
-local function is_valid_bufnr(bufnr)
-  return type(bufnr) == "number" and vim.api.nvim_buf_is_valid(bufnr)
-end
+local function is_valid_bufnr(bufnr) return type(bufnr) == "number" and vim.api.nvim_buf_is_valid(bufnr) end
 
 local function map_and_filter_bufs(bufs, new_bufnrs)
   local mapped = {}
