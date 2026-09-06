@@ -7,6 +7,7 @@ return {
   "AstroNvim/astrocommunity",
   { import = "astrocommunity.pack.lua" },
   { import = "astrocommunity.pack.typescript" },
+  { import = "astrocommunity.pack.eslint" },
   { import = "astrocommunity.search.nvim-spectre" },
   { import = "astrocommunity.completion.codeium-nvim" },
   { import = "astrocommunity.completion.codeium-vim" },

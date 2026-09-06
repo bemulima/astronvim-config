@@ -15,15 +15,10 @@ return {
         -- install formatters
         "stylua",
 
-        -- install debuggers
-        {
-          "debugpy",
-          -- Ubuntu needs python3.12-venv for Mason's virtual environment.
-          -- Keep Python debugging optional until that system package is available.
-          condition = function()
-            return vim.system({ "python3", "-c", "import ensurepip" }, { text = true }):wait().code == 0
-          end,
-        },
+        -- debugpy is intentionally not installed automatically for now: Mason's
+        -- bundled Python 3.14 cannot bootstrap ensurepip on this host. Re-enable
+        -- after the Mason package/runtime is fixed; Python debugging remains a
+        -- supported optional capability.
 
         -- install any other package
         "tree-sitter-cli",
@@ -31,7 +26,9 @@ return {
         "eslint_d",
         "dockerfile-language-server",
         "intelephense",
-        "spectral-language-server",
+        -- spectral-language-server is intentionally not installed automatically:
+        -- the current Mason registry build invokes `node make package` and exits
+        -- 127. Re-enable once that upstream package recipe is corrected.
       },
     },
   },

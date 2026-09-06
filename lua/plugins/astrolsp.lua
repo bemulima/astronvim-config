@@ -10,20 +10,17 @@ local function php_code_action()
   local lnum = vim.api.nvim_win_get_cursor(0)[1] - 1
   local diagnostics = vim.diagnostic.get(0, { lnum = lnum })
   local action_sources = { phpactor = true, intelephense = true }
-  local wanted_clients = {}
 
   for _, diagnostic in ipairs(diagnostics) do
-    if action_sources[diagnostic.source] then wanted_clients[diagnostic.source] = true end
+    if action_sources[diagnostic.source] then
+      -- Neovim 0.12 calls `filter` with an action only, not a client id. Passing
+      -- a two-argument filter therefore removed every PHP code action.
+      vim.lsp.buf.code_action()
+      return
+    end
   end
 
-  if next(wanted_clients) then
-    vim.lsp.buf.code_action {
-      filter = function(_, client_id)
-        local client = vim.lsp.get_client_by_id(client_id)
-        return client ~= nil and wanted_clients[client.name] == true
-      end,
-    }
-  elseif #diagnostics > 0 then
+  if #diagnostics > 0 then
     vim.notify("No code actions available for current PHPStan diagnostics", vim.log.levels.INFO)
   else
     vim.lsp.buf.code_action()
@@ -33,6 +30,32 @@ end
 ---@type LazySpec
 return {
   "AstroNvim/astrolsp",
+  init = function()
+    -- `mason-lspconfig` enables installed servers after AstroFile. On a startup
+    -- that opens a file directly, its first FileType event has already passed.
+    -- Retry that event for up to two seconds, then stop; this lets the initial
+    -- project buffer attach without making LSP eager for every Neovim startup.
+    vim.api.nvim_create_autocmd("User", {
+      pattern = "AstroFile",
+      desc = "Attach newly enabled LSPs to the initial project buffer",
+      callback = function()
+        local attempts = 0
+        local function retry_filetype()
+          attempts = attempts + 1
+          if next(vim.lsp._enabled_configs) then
+            for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+              if vim.api.nvim_buf_is_valid(bufnr) and vim.bo[bufnr].buftype == "" and vim.api.nvim_buf_get_name(bufnr) ~= "" then
+                vim.api.nvim_exec_autocmds("FileType", { buffer = bufnr, modeline = false })
+              end
+            end
+            return
+          end
+          if attempts < 20 then vim.defer_fn(retry_filetype, 100) end
+        end
+        vim.defer_fn(retry_filetype, 100)
+      end,
+    })
+  end,
   ---@type AstroLSPOpts
   opts = {
     features = {
