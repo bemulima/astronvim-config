@@ -71,6 +71,21 @@ return {
           desc = "Close buffer from tabline",
         },
 
+        -- Project sessions live in resession's separate `dirsession` directory.
+        -- Keep `<Leader>Sl` for Last Session; make the normal picker show projects.
+        ["<Leader>Sf"] = {
+          function() require("project_sessions").select() end,
+          desc = "Load project session",
+        },
+        ["<Leader>SF"] = {
+          function() require("project_sessions").select() end,
+          desc = "Load project session",
+        },
+        ["<Leader>Sp"] = {
+          function() require("project_sessions").select() end,
+          desc = "Load project session",
+        },
+
         -- tables with just a `desc` key will be registered with which-key if it's installed
         -- this is useful for naming menus
         -- ["<Leader>b"] = { desc = "Buffers" },

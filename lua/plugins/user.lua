@@ -19,10 +19,10 @@ return {
   -- customize dashboard options
   {
     "folke/snacks.nvim",
-    opts = {
-      dashboard = {
-        preset = {
-          header = table.concat({
+    opts = function(_, opts)
+      opts.dashboard = opts.dashboard or {}
+      opts.dashboard.preset = opts.dashboard.preset or {}
+      opts.dashboard.preset.header = table.concat({
             " █████  ███████ ████████ ██████   ██████ ",
             "██   ██ ██         ██    ██   ██ ██    ██",
             "███████ ███████    ██    ██████  ██    ██",
@@ -34,10 +34,25 @@ return {
             "██ ██  ██ ██    ██ ██ ██ ████ ██",
             "██  ██ ██  ██  ██  ██ ██  ██  ██",
             "██   ████   ████   ██ ██      ██",
-          }, "\n"),
-        },
-      },
-    },
+          }, "\n")
+
+      -- `s` opens all saved project sessions; `l` retains the separate Last Session.
+      local keys = opts.dashboard.preset.keys or {}
+      for _, item in ipairs(keys) do
+        if item.key == "s" then
+          item.action = "<Leader>Sp"
+          item.desc = "Projects (sessions)"
+        end
+      end
+      table.insert(keys, {
+        key = "l",
+        action = "<Leader>Sl",
+        icon = require("astroui").get_icon("Refresh", 0, true),
+        desc = "Last Session",
+      })
+      opts.dashboard.preset.keys = keys
+      return opts
+    end,
   },
 
   -- You can disable default plugins as follows:
