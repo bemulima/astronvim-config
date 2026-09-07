@@ -41,7 +41,7 @@ return {
       for _, item in ipairs(keys) do
         if item.key == "s" then
           item.action = "<Leader>Sp"
-          item.desc = "Projects (sessions)"
+          item.desc = "Projects"
         end
       end
       table.insert(keys, {

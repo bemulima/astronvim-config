@@ -22,6 +22,12 @@ return {
       virtual_text = true,
       underline = true,
     },
+    commands = {
+      ProjectSessionsRefresh = {
+        function() require("project_sessions").refresh() end,
+        desc = "Refresh the /Volumes/ZX10 project catalog",
+      },
+    },
     -- passed to `vim.filetype.add`
     filetypes = {
       -- see `:h vim.filetype.add` for usage
@@ -84,6 +90,10 @@ return {
         ["<Leader>Sp"] = {
           function() require("project_sessions").select() end,
           desc = "Load project session",
+        },
+        ["<Leader>Sr"] = {
+          function() require("project_sessions").refresh() end,
+          desc = "Refresh project catalog",
         },
 
         -- tables with just a `desc` key will be registered with which-key if it's installed
