@@ -27,6 +27,10 @@ return {
         function() require("project_sessions").refresh() end,
         desc = "Refresh the /Volumes/ZX10 project catalog",
       },
+      ProjectSidebar = {
+        function() require("project_sidebar").toggle() end,
+        desc = "Toggle the project sidebar",
+      },
     },
     -- passed to `vim.filetype.add`
     filetypes = {
@@ -77,23 +81,26 @@ return {
           desc = "Close buffer from tabline",
         },
 
-        -- Project sessions live in resession's separate `dirsession` directory.
-        -- Keep `<Leader>Sl` for Last Session; make the normal picker show projects.
+        -- Keep `<Leader>Sl` for Last Session; project choices switch this workspace.
         ["<Leader>Sf"] = {
           function() require("project_sessions").select() end,
-          desc = "Load project session",
+          desc = "Switch project",
         },
         ["<Leader>SF"] = {
           function() require("project_sessions").select() end,
-          desc = "Load project session",
+          desc = "Switch project",
         },
         ["<Leader>Sp"] = {
           function() require("project_sessions").select() end,
-          desc = "Load project session",
+          desc = "Switch project",
         },
         ["<Leader>Sr"] = {
           function() require("project_sessions").refresh() end,
           desc = "Refresh project catalog",
+        },
+        ["<Leader>SP"] = {
+          function() require("project_sidebar").toggle() end,
+          desc = "Toggle project sidebar",
         },
 
         -- tables with just a `desc` key will be registered with which-key if it's installed
@@ -102,6 +109,21 @@ return {
 
         -- setting a mapping to false will disable it
         -- ["<C-S>"] = false,
+      },
+    },
+    autocmds = {
+      project_sidebar = {
+        {
+          event = "VimEnter",
+          desc = "Configure the project sidebar buffer",
+          once = true,
+          callback = function() require("project_sidebar").setup() end,
+        },
+        {
+          event = { "BufWritePost", "FocusGained" },
+          desc = "Refresh visible project Git indicators",
+          callback = function() require("project_sidebar").update_git_status() end,
+        },
       },
     },
   },

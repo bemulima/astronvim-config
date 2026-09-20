@@ -336,14 +336,44 @@ function M.catalog(force)
   return value
 end
 
-local function open_project(path)
+local function sync_neotree(path)
+  local ok, command = pcall(require, "neo-tree.command")
+  if not ok then return end
+  command.execute {
+    source = "filesystem",
+    action = "show",
+    position = "left",
+    dir = path,
+    -- Do not let follow_current_file immediately replace the selected root
+    -- with the directory of a buffer from the previously active project.
+    reveal = false,
+  }
+end
+
+---Switch the current workspace to a project without creating an empty tab.
+---This avoids AstroNvim's startup dashboard taking over the new tab before
+---Neo-tree is rendered.
+---@param path string
+---@param opts? { keep_sidebar?: boolean }
+function M.open(path, opts)
+  opts = opts or {}
   if not is_directory(path) then
     catalog_cache = nil
     vim.notify("Project folder is no longer available: " .. path, vim.log.levels.WARN)
-    return
+    return false
   end
-  vim.cmd("cd " .. vim.fn.fnameescape(path))
+
+  vim.cmd("tcd " .. vim.fn.fnameescape(path))
+  vim.t.project_root = path
+
+  -- Build the project sidebar first. Neo-tree otherwise briefly becomes the
+  -- only window in a new tab and its close-if-last-window guard closes it.
+  local ok, sidebar = pcall(require, "project_sidebar")
+  if ok and not opts.keep_sidebar then sidebar.show() end
+  sync_neotree(path)
+  if ok then vim.defer_fn(sidebar.ensure_leftmost, 250) end
   vim.notify("Project opened: " .. path)
+  return true
 end
 
 ---Refresh the project-root scan without changing any saved session files.
@@ -369,11 +399,7 @@ function M.select()
     format_item = function(item) return item.label end,
   }, function(selected)
     if not selected then return end
-    if selected.name then
-      require("resession").load(selected.name, { dir = "dirsession" })
-    else
-      open_project(selected.path)
-    end
+    M.open(selected.path)
   end)
 end
 
