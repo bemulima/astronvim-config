@@ -7,6 +7,8 @@ local project_switch_generation = 0
 local sidebar_width = 30
 local selected_path
 local first_project_line = 5
+local filter_query = ""
+local filter_input
 
 local function sidebar_buffer()
   for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
@@ -57,24 +59,71 @@ local function selected_index(items)
   for index, item in ipairs(items) do
     if item.path == selected_path then return index end
   end
+end
+
+local function initial_index(items)
+  local selected = selected_index(items)
+  if selected then return selected end
   for index, item in ipairs(items) do
     if item.path == vim.t.project_root then return index end
   end
   return #items > 0 and 1 or nil
 end
 
+local function fuzzy_match(text, query)
+  local position = 1
+  for char in query:gmatch(".") do
+    local found = text:find(char, position, true)
+    if not found then return false end
+    position = found + 1
+  end
+  return true
+end
+
+local function filtered_items()
+  local all_items = require("project_sessions").catalog().items
+  local query = vim.trim(filter_query):lower()
+  if query == "" then return all_items, #all_items end
+
+  local tokens = vim.split(query, "%s+", { trimempty = true })
+  local matches = {}
+  for _, item in ipairs(all_items) do
+    local branch = (status_by_path[item.path] or {}).branch or ""
+    local text = (vim.fs.basename(item.path) .. " " .. branch):lower()
+    local matched = true
+    for _, token in ipairs(tokens) do
+      if not fuzzy_match(text, token) then
+        matched = false
+        break
+      end
+    end
+    if matched then table.insert(matches, item) end
+  end
+  return matches, #all_items
+end
+
 local function render()
   local bufnr = sidebar_buffer()
-  local items = require("project_sessions").catalog().items
+  local items, total = filtered_items()
   local index = selected_index(items)
-  if index then selected_path = items[index].path end
-  local cursor = index and first_project_line + index - 1 or 1
+  if not index and filter_query == "" then
+    index = initial_index(items)
+    if index then selected_path = items[index].path end
+  end
+  local cursor = #items > 0 and first_project_line + (index and index - 1 or 0) or 1
   local winid = sidebar_window()
 
-  local lines = { "Projects", "click/j/k: switch (100ms)  [g/]g: changes  <Enter>: tree  r: refresh  q: close", "· clean  ! changed  ? no Git  branch", "" }
+  local filter_hint
+  if filter_query == "" then
+    filter_hint = "click/j/k: switch (100ms)  [g/]g: changes  /: filter  <Enter>: tree  r: refresh  q: close"
+  else
+    filter_hint = string.format("Filter: %s  %d/%d  <Esc>: clear", filter_query, #items, total)
+  end
+  local lines = { "Projects", filter_hint, "· clean  ! changed  ? no Git  branch", "" }
   for _, item in ipairs(items) do
     table.insert(lines, label(item))
   end
+  if #items == 0 then table.insert(lines, "  No matching projects") end
 
   vim.bo[bufnr].modifiable = true
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
@@ -169,8 +218,6 @@ local function open_selected(focus_tree, item)
   -- only once that navigation has completed.
   if focus_tree then
     vim.defer_fn(function()
-      local winid = sidebar_window()
-      if winid and vim.api.nvim_win_is_valid(winid) then vim.api.nvim_win_close(winid, true) end
       focus_neotree()
     end, 350)
   else
@@ -205,9 +252,14 @@ local function jump_to_changed_project(direction)
   local items = vim.b[vim.api.nvim_get_current_buf()].project_sidebar_items or {}
   if #items == 0 then return end
 
-  local current = selected_index(items) or 1
+  local current = selected_index(items)
   for offset = 1, #items do
-    local index = ((current - 1 + direction * offset) % #items) + 1
+    local index
+    if current then
+      index = ((current - 1 + direction * offset) % #items) + 1
+    else
+      index = direction > 0 and offset or #items - offset + 1
+    end
     if (status_by_path[items[index].path] or {}).status == "!" then
       selected_path = items[index].path
       render()
@@ -222,10 +274,59 @@ local function move_and_switch(delta)
   local bufnr = vim.api.nvim_get_current_buf()
   local items = vim.b[bufnr].project_sidebar_items or {}
   if #items == 0 then return end
-  local current = vim.api.nvim_win_get_cursor(0)[1]
-  local line = math.min(math.max(current + delta, first_project_line), #items + first_project_line - 1)
+  local index = selected_index(items)
+  local line
+  if index then
+    line = math.min(math.max(first_project_line + index - 1 + delta, first_project_line), #items + first_project_line - 1)
+  else
+    line = delta > 0 and first_project_line or #items + first_project_line - 1
+  end
   vim.api.nvim_win_set_cursor(0, { line, 0 })
   switch_selected_debounced()
+end
+
+local function clear_filter()
+  if filter_query == "" then return end
+  filter_query = ""
+  render()
+end
+
+local function open_filter()
+  if filter_input and filter_input:valid() then
+    vim.api.nvim_set_current_win(filter_input.win)
+    return
+  end
+
+  local ok, snacks = pcall(require, "snacks")
+  if not ok or not snacks.input then
+    vim.notify("Snacks input is unavailable", vim.log.levels.WARN)
+    return
+  end
+
+  local sidebar_win = sidebar_window()
+  if not sidebar_win then return end
+  filter_input = snacks.input({
+    prompt = "Filter projects",
+    default = filter_query,
+    win = {
+      relative = "win",
+      win = sidebar_win,
+      row = 1,
+      col = 0,
+      width = vim.api.nvim_win_get_width(sidebar_win),
+      border = "single",
+    },
+  }, function(value)
+    filter_input = nil
+    filter_query = value or ""
+    render()
+  end)
+  filter_input:on({ "TextChangedI", "TextChanged" }, function()
+    if filter_input and filter_input:valid() then
+      filter_query = filter_input:text()
+      render()
+    end
+  end, { buf = true })
 end
 
 local function click_project()
@@ -314,6 +415,8 @@ function M.setup()
   vim.keymap.set("n", "k", function() move_and_switch(-vim.v.count1) end, { buffer = bufnr, desc = "Previous project" })
   vim.keymap.set("n", "]g", function() jump_to_changed_project(1) end, { buffer = bufnr, desc = "Next changed project" })
   vim.keymap.set("n", "[g", function() jump_to_changed_project(-1) end, { buffer = bufnr, desc = "Previous changed project" })
+  vim.keymap.set("n", "/", open_filter, { buffer = bufnr, desc = "Filter projects" })
+  vim.keymap.set("n", "<Esc>", clear_filter, { buffer = bufnr, desc = "Clear project filter" })
   vim.keymap.set("n", "r", M.refresh, { buffer = bufnr, desc = "Refresh projects and Git status" })
   vim.keymap.set("n", "q", function()
     project_switch_generation = project_switch_generation + 1
