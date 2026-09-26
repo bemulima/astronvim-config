@@ -5,6 +5,8 @@ local status_by_path = {}
 local render_generation = 0
 local project_switch_generation = 0
 local sidebar_width = 30
+local selected_path
+local first_project_line = 5
 
 local function sidebar_buffer()
   for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
@@ -52,12 +54,23 @@ local function label(item)
   return string.format("%s %s %s%s", active and "▶" or " ", status, vim.fs.basename(item.path), branch)
 end
 
+local function selected_index(items)
+  for index, item in ipairs(items) do
+    if item.path == selected_path then return index end
+  end
+  for index, item in ipairs(items) do
+    if item.path == vim.t.project_root then return index end
+  end
+  return #items > 0 and 1 or nil
+end
+
 local function render()
   local bufnr = sidebar_buffer()
   local items = require("project_sessions").catalog().items
-  local cursor = 1
+  local index = selected_index(items)
+  if index then selected_path = items[index].path end
+  local cursor = index and first_project_line + index - 1 or 1
   local winid = sidebar_window()
-  if winid then cursor = vim.api.nvim_win_get_cursor(winid)[1] end
 
   local lines = { "Projects", "click/j/k: switch (100ms)  <Enter>: tree  r: refresh  q: close", "· clean  ! changed  ? no Git  branch", "" }
   for _, item in ipairs(items) do
@@ -89,7 +102,7 @@ local function render()
   vim.bo[bufnr].modifiable = false
 
   if winid and vim.api.nvim_win_is_valid(winid) then
-    vim.api.nvim_win_set_cursor(winid, { math.min(math.max(cursor, 1), #lines), 0 })
+    vim.api.nvim_win_set_cursor(winid, { cursor, 0 })
   end
 end
 
@@ -129,7 +142,9 @@ end
 
 local function selected_item()
   local bufnr = vim.api.nvim_get_current_buf()
-  return (vim.b[bufnr].project_sidebar_items or {})[vim.api.nvim_win_get_cursor(0)[1] - 3]
+  local item = (vim.b[bufnr].project_sidebar_items or {})[vim.api.nvim_win_get_cursor(0)[1] - first_project_line + 1]
+  if item then selected_path = item.path end
+  return item
 end
 
 local function focus_projects()
@@ -187,7 +202,7 @@ local function move_and_switch(delta)
   local items = vim.b[bufnr].project_sidebar_items or {}
   if #items == 0 then return end
   local current = vim.api.nvim_win_get_cursor(0)[1]
-  local line = math.min(math.max(current + delta, 4), #items + 3)
+  local line = math.min(math.max(current + delta, first_project_line), #items + first_project_line - 1)
   vim.api.nvim_win_set_cursor(0, { line, 0 })
   switch_selected_debounced()
 end
@@ -200,7 +215,7 @@ local function click_project()
   if not vim.b[bufnr].project_sidebar then return end
 
   local items = vim.b[bufnr].project_sidebar_items or {}
-  if mouse.line < 4 or mouse.line > #items + 3 then return end
+  if mouse.line < first_project_line or mouse.line > #items + first_project_line - 1 then return end
   vim.api.nvim_set_current_win(winid)
   vim.api.nvim_win_set_cursor(winid, { mouse.line, math.max(mouse.column - 1, 0) })
   switch_selected_debounced()
@@ -210,6 +225,9 @@ function M.show()
   local bufnr = sidebar_buffer()
   local winid = sidebar_window()
   if not winid then
+    -- Opening the picker always starts on the active project. The fallback to
+    -- the first catalog item is handled by render when there is no active root.
+    selected_path = vim.t.project_root
     vim.cmd("topleft " .. sidebar_width .. "vsplit")
     winid = vim.api.nvim_get_current_win()
     vim.api.nvim_win_set_buf(winid, bufnr)
