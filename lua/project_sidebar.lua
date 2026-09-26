@@ -71,7 +71,7 @@ local function render()
   local cursor = index and first_project_line + index - 1 or 1
   local winid = sidebar_window()
 
-  local lines = { "Projects", "click/j/k: switch (100ms)  <Enter>: tree  r: refresh  q: close", "· clean  ! changed  ? no Git  branch", "" }
+  local lines = { "Projects", "click/j/k: switch (100ms)  [g/]g: changes  <Enter>: tree  r: refresh  q: close", "· clean  ! changed  ? no Git  branch", "" }
   for _, item in ipairs(items) do
     table.insert(lines, label(item))
   end
@@ -201,6 +201,23 @@ local function switch_selected_debounced()
   end, 100)
 end
 
+local function jump_to_changed_project(direction)
+  local items = vim.b[vim.api.nvim_get_current_buf()].project_sidebar_items or {}
+  if #items == 0 then return end
+
+  local current = selected_index(items) or 1
+  for offset = 1, #items do
+    local index = ((current - 1 + direction * offset) % #items) + 1
+    if (status_by_path[items[index].path] or {}).status == "!" then
+      selected_path = items[index].path
+      render()
+      switch_selected_debounced()
+      return
+    end
+  end
+  vim.notify("No projects with Git changes", vim.log.levels.INFO)
+end
+
 local function move_and_switch(delta)
   local bufnr = vim.api.nvim_get_current_buf()
   local items = vim.b[bufnr].project_sidebar_items or {}
@@ -295,6 +312,8 @@ function M.setup()
   vim.keymap.set("n", "<C-Right>", function() resize_sidebar(2) end, { buffer = bufnr, desc = "Widen projects" })
   vim.keymap.set("n", "j", function() move_and_switch(vim.v.count1) end, { buffer = bufnr, desc = "Next project" })
   vim.keymap.set("n", "k", function() move_and_switch(-vim.v.count1) end, { buffer = bufnr, desc = "Previous project" })
+  vim.keymap.set("n", "]g", function() jump_to_changed_project(1) end, { buffer = bufnr, desc = "Next changed project" })
+  vim.keymap.set("n", "[g", function() jump_to_changed_project(-1) end, { buffer = bufnr, desc = "Previous changed project" })
   vim.keymap.set("n", "r", M.refresh, { buffer = bufnr, desc = "Refresh projects and Git status" })
   vim.keymap.set("n", "q", function()
     project_switch_generation = project_switch_generation + 1
