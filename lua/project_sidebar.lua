@@ -4,6 +4,7 @@ local namespace = vim.api.nvim_create_namespace "project-sidebar"
 local status_by_path = {}
 local render_generation = 0
 local project_switch_generation = 0
+local sidebar_width = 30
 
 local function sidebar_buffer()
   for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
@@ -35,10 +36,20 @@ local function configure_window(winid)
   vim.wo[winid].wrap = false
 end
 
+local function resize_sidebar(delta)
+  local winid = sidebar_window()
+  if not winid or not vim.api.nvim_win_is_valid(winid) then return end
+
+  sidebar_width = math.max(20, vim.api.nvim_win_get_width(winid) + delta)
+  vim.api.nvim_win_set_width(winid, sidebar_width)
+end
+
 local function label(item)
-  local status = status_by_path[item.path] or "…"
+  local info = status_by_path[item.path] or {}
+  local status = info.status or "…"
   local active = vim.t.project_root == item.path
-  return string.format("%s %s %s", active and "▶" or " ", status, vim.fs.basename(item.path))
+  local branch = info.branch and string.format("  %s", info.branch) or ""
+  return string.format("%s %s %s%s", active and "▶" or " ", status, vim.fs.basename(item.path), branch)
 end
 
 local function render()
@@ -48,7 +59,7 @@ local function render()
   local winid = sidebar_window()
   if winid then cursor = vim.api.nvim_win_get_cursor(winid)[1] end
 
-  local lines = { "Projects", "j/k: switch (100ms)  <Enter>: tree  r: refresh  q: close", "· clean  ! changed  ? no Git", "" }
+  local lines = { "Projects", "click/j/k: switch (100ms)  <Enter>: tree  r: refresh  q: close", "· clean  ! changed  ? no Git  branch", "" }
   for _, item in ipairs(items) do
     table.insert(lines, label(item))
   end
@@ -60,13 +71,18 @@ local function render()
   vim.api.nvim_buf_add_highlight(bufnr, namespace, "Comment", 1, 0, -1)
   for index, item in ipairs(items) do
     local line = index + 3
-    local status = status_by_path[item.path]
+    local info = status_by_path[item.path] or {}
+    local status = info.status
     if status == "!" then
       vim.api.nvim_buf_add_highlight(bufnr, namespace, "NeoTreeGitModified", line, 2, 3)
     elseif status == "?" then
       vim.api.nvim_buf_add_highlight(bufnr, namespace, "NeoTreeGitUntracked", line, 2, 3)
     elseif vim.t.project_root == item.path then
       vim.api.nvim_buf_add_highlight(bufnr, namespace, "Visual", line, 0, -1)
+    end
+    if info.branch then
+      local branch_start = #string.format("%s %s %s", vim.t.project_root == item.path and "▶" or " ", status or "…", vim.fs.basename(item.path)) + 2
+      vim.api.nvim_buf_add_highlight(bufnr, namespace, "String", line, branch_start, -1)
     end
   end
   vim.b[bufnr].project_sidebar_items = items
@@ -77,19 +93,33 @@ local function render()
   end
 end
 
+local function branch_from_status(output)
+  local header = output:match("([^\n]+)")
+  if not header or not vim.startswith(header, "## ") then return nil end
+  local branch = header:sub(4)
+  local no_commits = branch:match("^No commits yet on (.+)$")
+  if no_commits then return no_commits end
+  if branch:match("^HEAD") then return "detached" end
+  return branch:match("^(.-)%.%.%.") or branch:match("^(.-) %[") or branch
+end
+
 local function refresh_git_status()
   render_generation = render_generation + 1
   local generation = render_generation
   local items = require("project_sessions").catalog().items
   for _, item in ipairs(items) do
-    vim.system({ "git", "status", "--porcelain" }, { cwd = item.path, text = true }, function(result)
+    vim.system({ "git", "status", "--porcelain=v1", "--branch" }, { cwd = item.path, text = true }, function(result)
       if generation ~= render_generation then return end
       vim.schedule(function()
         if generation ~= render_generation then return end
         if result.code == 0 then
-          status_by_path[item.path] = result.stdout == "" and "·" or "!"
+          local changes = result.stdout:gsub("^[^\n]*\n?", "")
+          status_by_path[item.path] = {
+            status = changes == "" and "·" or "!",
+            branch = branch_from_status(result.stdout),
+          }
         else
-          status_by_path[item.path] = "?"
+          status_by_path[item.path] = { status = "?" }
         end
         render()
       end)
@@ -134,6 +164,14 @@ local function open_selected(focus_tree, item)
   end
 end
 
+local function focus_selected_tree()
+  local item = selected_item()
+  if not item then return end
+  project_switch_generation = project_switch_generation + 1
+  require("project_sessions").open(item.path, { keep_sidebar = true })
+  vim.defer_fn(focus_neotree, 150)
+end
+
 local function switch_selected_debounced()
   local item = selected_item()
   if not item then return end
@@ -154,18 +192,33 @@ local function move_and_switch(delta)
   switch_selected_debounced()
 end
 
+local function click_project()
+  local mouse = vim.fn.getmousepos()
+  local winid = mouse.winid
+  if not winid or winid == 0 or not vim.api.nvim_win_is_valid(winid) then return end
+  local bufnr = vim.api.nvim_win_get_buf(winid)
+  if not vim.b[bufnr].project_sidebar then return end
+
+  local items = vim.b[bufnr].project_sidebar_items or {}
+  if mouse.line < 4 or mouse.line > #items + 3 then return end
+  vim.api.nvim_set_current_win(winid)
+  vim.api.nvim_win_set_cursor(winid, { mouse.line, math.max(mouse.column - 1, 0) })
+  switch_selected_debounced()
+end
+
 function M.show()
   local bufnr = sidebar_buffer()
   local winid = sidebar_window()
   if not winid then
-    vim.cmd("topleft 30vsplit")
+    vim.cmd("topleft " .. sidebar_width .. "vsplit")
     winid = vim.api.nvim_get_current_win()
     vim.api.nvim_win_set_buf(winid, bufnr)
     configure_window(winid)
+    vim.api.nvim_win_set_width(winid, sidebar_width)
   end
   render()
   refresh_git_status()
-  vim.defer_fn(M.ensure_leftmost, 0)
+  M.ensure_leftmost()
 end
 
 ---Keep Projects as the far-left sidebar, with Neo-tree immediately to its right.
@@ -173,14 +226,14 @@ function M.ensure_leftmost()
   local winid = sidebar_window()
   if not winid or vim.api.nvim_win_get_position(winid)[2] == 0 then return end
 
-  local bufnr = vim.api.nvim_win_get_buf(winid)
-  local cursor = vim.api.nvim_win_get_cursor(winid)
-  vim.api.nvim_win_close(winid, true)
-  vim.cmd("topleft 30vsplit")
-  winid = vim.api.nvim_get_current_win()
-  vim.api.nvim_win_set_buf(winid, bufnr)
-  configure_window(winid)
-  vim.api.nvim_win_set_cursor(winid, cursor)
+  -- Moving the existing window preserves its buffer, cursor, and user-set
+  -- width. Recreating it with :vsplit caused the visible width jump.
+  sidebar_width = vim.api.nvim_win_get_width(winid)
+  vim.api.nvim_win_call(winid, function() vim.cmd "wincmd H" end)
+  if vim.api.nvim_win_is_valid(winid) then
+    configure_window(winid)
+    vim.api.nvim_win_set_width(winid, sidebar_width)
+  end
 end
 
 function M.toggle()
@@ -204,12 +257,20 @@ function M.update_git_status()
   if sidebar_window() then refresh_git_status() end
 end
 
+function M.is_open() return sidebar_window() ~= nil end
+
+function M.focus() focus_projects() end
+
 function M.setup()
   local bufnr = sidebar_buffer()
   vim.keymap.set("n", "<CR>", function()
     project_switch_generation = project_switch_generation + 1
     open_selected(true)
   end, { buffer = bufnr, desc = "Focus selected project tree" })
+  vim.keymap.set("n", "l", focus_selected_tree, { buffer = bufnr, desc = "Focus selected project tree" })
+  vim.keymap.set("n", "<LeftMouse>", click_project, { buffer = bufnr, desc = "Switch clicked project" })
+  vim.keymap.set("n", "<C-Left>", function() resize_sidebar(-2) end, { buffer = bufnr, desc = "Narrow projects" })
+  vim.keymap.set("n", "<C-Right>", function() resize_sidebar(2) end, { buffer = bufnr, desc = "Widen projects" })
   vim.keymap.set("n", "j", function() move_and_switch(vim.v.count1) end, { buffer = bufnr, desc = "Next project" })
   vim.keymap.set("n", "k", function() move_and_switch(-vim.v.count1) end, { buffer = bufnr, desc = "Previous project" })
   vim.keymap.set("n", "r", M.refresh, { buffer = bufnr, desc = "Refresh projects and Git status" })

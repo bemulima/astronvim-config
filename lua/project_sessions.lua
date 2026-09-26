@@ -370,8 +370,12 @@ function M.open(path, opts)
   -- only window in a new tab and its close-if-last-window guard closes it.
   local ok, sidebar = pcall(require, "project_sidebar")
   if ok and not opts.keep_sidebar then sidebar.show() end
+  if ok then sidebar.ensure_leftmost() end
   sync_neotree(path)
-  if ok then vim.defer_fn(sidebar.ensure_leftmost, 250) end
+  -- Filesystem navigation is debounced by Neo-tree, which can create its
+  -- left sidebar after the synchronous check above. Restore Projects to the
+  -- far-left position once Neo-tree has finished opening.
+  if ok then vim.defer_fn(sidebar.ensure_leftmost, 200) end
   vim.notify("Project opened: " .. path)
   return true
 end
