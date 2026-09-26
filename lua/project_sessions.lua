@@ -350,6 +350,33 @@ local function sync_neotree(path)
   }
 end
 
+local function filesystem_tree_is_open()
+  local ok, manager = pcall(require, "neo-tree.sources.manager")
+  if not ok then return false end
+  local state = manager.get_state("filesystem", nil, nil)
+  return state and state.winid and vim.api.nvim_win_is_valid(state.winid) and vim.bo[vim.api.nvim_win_get_buf(state.winid)].filetype == "neo-tree"
+end
+
+---Move Projects beside a newly opened Neo-tree before the next UI redraw.
+---@param sidebar table
+local function order_sidebar_after_neotree_open(sidebar)
+  local ok, events = pcall(require, "neo-tree.events")
+  if not ok then return end
+
+  local tabid = vim.api.nvim_get_current_tabpage()
+  local handler
+  handler = {
+    event = events.NEO_TREE_WINDOW_AFTER_OPEN,
+    id = "project-sidebar-order-" .. tabid,
+    handler = function(args)
+      if args.source ~= "filesystem" or args.tabid ~= tabid then return end
+      events.unsubscribe(handler)
+      sidebar.ensure_leftmost()
+    end,
+  }
+  events.subscribe(handler)
+end
+
 ---Switch the current workspace to a project without creating an empty tab.
 ---This avoids AstroNvim's startup dashboard taking over the new tab before
 ---Neo-tree is rendered.
@@ -371,11 +398,9 @@ function M.open(path, opts)
   local ok, sidebar = pcall(require, "project_sidebar")
   if ok and not opts.keep_sidebar then sidebar.show() end
   if ok then sidebar.ensure_leftmost() end
+  local tree_was_open = filesystem_tree_is_open()
+  if ok and not tree_was_open then order_sidebar_after_neotree_open(sidebar) end
   sync_neotree(path)
-  -- Filesystem navigation is debounced by Neo-tree, which can create its
-  -- left sidebar after the synchronous check above. Restore Projects to the
-  -- far-left position once Neo-tree has finished opening.
-  if ok then vim.defer_fn(sidebar.ensure_leftmost, 200) end
   vim.notify("Project opened: " .. path)
   return true
 end
