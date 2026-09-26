@@ -49,9 +49,8 @@ end
 local function label(item)
   local info = status_by_path[item.path] or {}
   local status = info.status or "…"
-  local active = vim.t.project_root == item.path
   local branch = info.branch and string.format("  %s", info.branch) or ""
-  return string.format("%s %s %s%s", active and "▶" or " ", status, vim.fs.basename(item.path), branch)
+  return string.format("  %s %s%s", status, vim.fs.basename(item.path), branch)
 end
 
 local function selected_index(items)
@@ -86,15 +85,17 @@ local function render()
     local line = index + 3
     local info = status_by_path[item.path] or {}
     local status = info.status
+    if item.path == selected_path then
+      -- Remains visible even while focus is in Neo-tree.
+      vim.api.nvim_buf_add_highlight(bufnr, namespace, "PmenuSel", line, 0, -1)
+    end
     if status == "!" then
       vim.api.nvim_buf_add_highlight(bufnr, namespace, "NeoTreeGitModified", line, 2, 3)
     elseif status == "?" then
       vim.api.nvim_buf_add_highlight(bufnr, namespace, "NeoTreeGitUntracked", line, 2, 3)
-    elseif vim.t.project_root == item.path then
-      vim.api.nvim_buf_add_highlight(bufnr, namespace, "Visual", line, 0, -1)
     end
     if info.branch then
-      local branch_start = #string.format("%s %s %s", vim.t.project_root == item.path and "▶" or " ", status or "…", vim.fs.basename(item.path)) + 2
+      local branch_start = #string.format("  %s %s", status or "…", vim.fs.basename(item.path)) + 2
       vim.api.nvim_buf_add_highlight(bufnr, namespace, "String", line, branch_start, -1)
     end
   end
@@ -190,6 +191,9 @@ end
 local function switch_selected_debounced()
   local item = selected_item()
   if not item then return end
+  -- Update the persistent active-row highlight immediately; Neo-tree itself
+  -- changes after the debounce interval.
+  render()
   project_switch_generation = project_switch_generation + 1
   local generation = project_switch_generation
   vim.defer_fn(function()

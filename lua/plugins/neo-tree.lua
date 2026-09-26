@@ -14,7 +14,7 @@ return {
     opts.filesystem = opts.filesystem or {}
     opts.filesystem.window = opts.filesystem.window or {}
     opts.filesystem.window.mappings = opts.filesystem.window.mappings or {}
-    opts.filesystem.window.mappings["<C-k>"] = function()
+    opts.filesystem.window.mappings["<C-h>"] = function()
       local ok, sidebar = pcall(require, "project_sidebar")
       if ok and sidebar.is_open() then
         sidebar.focus()
